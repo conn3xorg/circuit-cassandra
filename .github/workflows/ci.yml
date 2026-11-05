@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Conn3x
+        env: &gh
+          GH_TOKEN: ${{ github.token }}
+        run: &install |
+          tag=$(gh release view -R conn3xorg/conn3x --json tagName -q .tagName)
+          file="conn3x_${tag#v}_linux_amd64.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl -sSfLO "https://github.com/conn3xorg/conn3x/releases/download/$tag/$file"
+          curl -sSfLO "https://github.com/conn3xorg/conn3x/releases/download/$tag/checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          mkdir -p bin && tar -xzf "$file" -C bin conn3x
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: conn3x version
+      - run: conn3x fmt -check -recursive
+      - name: Validate
+        run: conn3x init -backend=false && conn3x validate
+      - name: Validate the example
+        working-directory: examples/local
+        run: conn3x init -backend=false && conn3x validate
+
+  e2e:
+    needs: validate
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [rocky10, fedora45, ubuntu2404, debian13]
+    name: e2e (${{ matrix.distro }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The test host images live in the Conn3x repo.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: conn3xorg/conn3x
+          ref: main
+          path: conn3x
+          persist-credentials: false
+          sparse-checkout: test/images
+      - name: Install Conn3x
+        env: *gh
+        run: *install
+      - name: Start the ${{ matrix.distro }} host
+        working-directory: examples/local
+        env:
+          CONTAINERFILE: ${{ github.workspace }}/conn3x/test/images/${{ matrix.distro }}/Containerfile
+          # systemd in the host container is simplest under rootful Podman.
+          PODMAN: sudo podman
+        run: ./up.sh
+      - name: Apply, then plan again with no changes
+        working-directory: examples/local
+        env:
+          TF_VAR_admin_password: ci-only-password
+        run: |
+          conn3x init
+          conn3x apply -auto-approve
+          conn3x plan -detailed-exitcode
+      # The password reaches the host write-only, so state holds none of it,
+      # and nothing Conn3x writes under .terraform does either.
+      # .terraform/modules is left out: it holds downloaded module code.
+      - name: Check the password stays out of state
+        working-directory: examples/local
+        run: |
+          if grep -rqF --exclude-dir=modules -e ci-only-password terraform.tfstate .terraform/; then
+            echo "The example's password is in terraform.tfstate or under .terraform/." >&2
+            exit 1
+          fi
+      # The cassandra superuser logs in with the new password, writes a row
+      # and reads it back. The default password no longer works.
+      - name: Write and read a row over CQL
+        run: |
+          sudo podman exec -i circuit-cassandra sh -eu <<'EOF'
+          c='cqlsh --credentials /etc/conn3x/cassandra/credentials'
+          $c -e "CREATE KEYSPACE app WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}; CREATE TABLE app.t (id int PRIMARY KEY, v text); INSERT INTO app.t (id, v) VALUES (1, 'hello');"
+          $c -e 'SELECT v FROM app.t WHERE id = 1' | grep -qw hello
+          $c -e 'SELECT cluster_name FROM system.local' | grep -q 'Example Cluster'
+          ! cqlsh -u cassandra -p cassandra -e 'SELECT release_version FROM system.local' || exit 1
+          nodetool status | grep -q '^UN'
+          EOF
+      # Restarting the container boots systemd again, so this checks
+      # Cassandra is enabled and comes back with its settings and data.
+      - name: Restart the host, then read the row again
+        run: |
+          sudo podman restart circuit-cassandra
+          for _ in $(seq 60); do
+            case $(sudo podman exec circuit-cassandra systemctl is-system-running 2>/dev/null) in running|degraded) break ;; esac
+            sleep 1
+          done
+          sudo podman exec circuit-cassandra systemctl is-active cassandra
+          sudo podman exec -i circuit-cassandra sh -eu <<'EOF'
+          c='cqlsh --credentials /etc/conn3x/cassandra/credentials'
+          for _ in $(seq 90); do
+            $c -e 'SELECT release_version FROM system.local' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          $c -e 'SELECT v FROM app.t WHERE id = 1' | grep -qw hello
+          EOF
+      - name: Plan again after the restart, with no changes
+        working-directory: examples/local
+        env:
+          TF_VAR_admin_password: ci-only-password
+        run: conn3x plan -detailed-exitcode
+      - name: Clean up
+        if: always()
+        working-directory: examples/local
+        env:
+          PODMAN: sudo podman
+        run: ./down.sh
