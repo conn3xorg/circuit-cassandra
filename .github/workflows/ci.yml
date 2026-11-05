@@ -59,6 +59,10 @@ jobs:
       - name: Install Conn3x
         env: *gh
         run: *install
+      # The host container shares the runner's kernel and can't change its
+      # sysctls, so the runner gets the value the circuit would set.
+      - name: Raise vm.max_map_count on the runner
+        run: sudo sysctl -w vm.max_map_count=1048575
       - name: Start the ${{ matrix.distro }} host
         working-directory: examples/local
         env:

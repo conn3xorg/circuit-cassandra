@@ -327,7 +327,7 @@ circuit "cassandra" {
   # raises it: a host that already allows more keeps its value.
   step "max_map_count" {
     command {
-      command = "echo vm.max_map_count=1048575 > /etc/sysctl.d/90-conn3x-cassandra.conf && sysctl -q -p /etc/sysctl.d/90-conn3x-cassandra.conf"
+      command = "mkdir -p /etc/sysctl.d && echo vm.max_map_count=1048575 > /etc/sysctl.d/90-conn3x-cassandra.conf && sysctl -q -p /etc/sysctl.d/90-conn3x-cassandra.conf"
       unless  = "[ \"$(sysctl -n vm.max_map_count)\" -ge 1048575 ]"
     }
   }
