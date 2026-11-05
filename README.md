@@ -18,7 +18,7 @@ variable "cassandra_password" {
 }
 
 module "cassandra" {
-  source = "github.com/conn3xorg/circuit-cassandra?ref=v0.1.0"
+  source = "github.com/conn3xorg/circuit-cassandra?ref=v0.1.1"
 
   hosts                = { db = "192.168.1.40" }
   ssh_private_key_file = "~/.ssh/id_ed25519"
@@ -41,7 +41,7 @@ For a cluster, give each host its own `listen_address`, the address the nodes re
 
 ```hcl
 module "cassandra" {
-  source = "github.com/conn3xorg/circuit-cassandra?ref=v0.1.0"
+  source = "github.com/conn3xorg/circuit-cassandra?ref=v0.1.1"
 
   hosts = {
     cass1 = { address = "203.0.113.10", listen_address = "10.0.0.10" }
