@@ -216,6 +216,15 @@ circuit "cassandra" {
     }
   }
 
+  # mkdir would make /opt/cassandra with the login session's umask, and under
+  # circuit-hardening's 027 the cassandra user couldn't reach its install.
+  step "base_dir" {
+    directory {
+      path = local.base
+      mode = "0755"
+    }
+  }
+
   step "tarball" {
     download {
       url    = "https://archive.apache.org/dist/cassandra/${local.v}/apache-cassandra-${local.v}-bin.tar.gz"
@@ -225,10 +234,12 @@ circuit "cassandra" {
   }
 
   # Unpacked by hand rather than with an archive step, so the files belong
-  # to root instead of the uid that built the release.
+  # to root instead of the uid that built the release. umask 022, or tar
+  # would make some of the release's directories with the login session's
+  # umask.
   step "unpack" {
     command {
-      command = "cd ${local.base} && rm -rf .unpack && mkdir .unpack && tar --no-same-owner -xzf ${local.tarball} -C .unpack && rm -rf ${local.v} && mv .unpack/apache-cassandra-${local.v} ${local.v} && rmdir .unpack"
+      command = "umask 022 && cd ${local.base} && rm -rf .unpack && mkdir .unpack && tar --no-same-owner -xzf ${local.tarball} -C .unpack && rm -rf ${local.v} && mv .unpack/apache-cassandra-${local.v} ${local.v} && rmdir .unpack"
       creates = "${local.home}/bin/cassandra"
     }
   }
