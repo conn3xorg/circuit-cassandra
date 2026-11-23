@@ -145,7 +145,7 @@ Set `cassandra_version` and `cassandra_sha256` to a newer 5.0 release, which Apa
 
 ## Requirements
 
-Requires Conn3x v0.7.0 or later, systemd on each host, and outbound HTTPS to archive.apache.org, packages.adoptium.net and your distribution's mirrors. Cassandra wants at least 2 GB of memory; with less, set `heap_size` to `"512M"` or so. Each release takes about 150 MB of disk, tarball included. amd64 and arm64.
+Requires Conn3x v0.28.0 or later, systemd on each host, and outbound HTTPS to archive.apache.org, packages.adoptium.net and your distribution's mirrors. Cassandra wants at least 2 GB of memory; with less, set `heap_size` to `"512M"` or so. Each release takes about 150 MB of disk, tarball included. amd64 and arm64.
 
 ## Tested on
 
