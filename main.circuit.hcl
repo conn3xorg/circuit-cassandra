@@ -346,8 +346,8 @@ circuit "cassandra" {
   # A step rather than a handler, so the step below finds Cassandra running
   # the new release and settings. On a first apply it's what starts it.
   step "restart" {
-    command {
-      command = "systemctl daemon-reload && systemctl restart cassandra"
+    service_action {
+      name = "cassandra"
       triggers = {
         current = conn3x_link.cassandra__current[each.key].revision
         config  = conn3x_file.cassandra__config[each.key].revision
@@ -394,7 +394,7 @@ circuit "cassandra" {
       unless  = "${local.held} held && ${format(local.cqlsh, local.python[each.key])} --credentials ${local.credentials} -e 'SELECT role FROM system_auth.roles LIMIT 1' >/dev/null 2>&1"
       triggers = {
         credentials = conn3x_file.cassandra__credentials[each.key].revision
-        restart     = conn3x_command.cassandra__restart[each.key].revision
+        restart     = conn3x_service_action.cassandra__restart[each.key].revision
       }
     }
   }
